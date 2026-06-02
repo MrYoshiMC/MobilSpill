@@ -13,3 +13,5 @@ A browser party sports game where phones connect as motion controllers.
 7. Use the shown phone link or enter the game code on a phone.
 
 Phone motion controls work best on HTTPS, so the GitHub Pages URL is preferred over a plain local file.
+
+If WebRTC is blocked on a network, the game falls back to an MQTT-over-WebSocket relay so phone inputs can still reach the PC.
