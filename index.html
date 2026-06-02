@@ -30,6 +30,19 @@
               <button id="copyLink" type="button" class="ghost-button">Copy phone link</button>
             </div>
             <p id="connectionStatus" class="status-text">Opening lobby...</p>
+            <div class="mode-row" aria-label="Match mode">
+              <button id="modeAi" type="button" class="mode-button active">Vs AI</button>
+              <button id="modePeople" type="button" class="mode-button">Vs people</button>
+            </div>
+            <div class="test-panel">
+              <div>
+                <span class="label">Controller test</span>
+                <strong id="testStatus">Connect a phone, then swing.</strong>
+              </div>
+              <div class="test-meter">
+                <div id="testMeterFill"></div>
+              </div>
+            </div>
             <div id="playersList" class="players-list"></div>
             <button id="startGame" type="button" class="primary-button" disabled>Start match</button>
           </div>

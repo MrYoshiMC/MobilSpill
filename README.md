@@ -1,4 +1,4 @@
-# Motion Match
+# Phone Tennis
 
 A browser party sports game where phones connect as motion controllers.
 

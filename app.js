@@ -13,6 +13,10 @@ const tv = {
   code: $("gameCode"),
   copy: $("copyLink"),
   status: $("connectionStatus"),
+  modeAi: $("modeAi"),
+  modePeople: $("modePeople"),
+  testStatus: $("testStatus"),
+  testMeter: $("testMeterFill"),
   players: $("playersList"),
   start: $("startGame"),
   hud: $("hud"),
@@ -55,7 +59,10 @@ const game = {
   mode: "lobby",
   players: [],
   connections: [],
+  playMode: "ai",
   score: 0,
+  aiScore: 0,
+  sideScores: [0, 0],
   streak: 0,
   timeLeft: 60,
   spawnTimer: 1,
@@ -145,10 +152,12 @@ class MatchScene extends Phaser.Scene {
   }
 
   lane(index, total = Math.max(1, game.players.length)) {
-    const laneWidth = this.scale.width / total;
+    const sideMode = game.playMode === "people" && total > 1;
+    const laneWidth = sideMode ? this.scale.width : this.scale.width / total;
+    const sideY = sideMode && index === 1 ? this.scale.height * 0.2 : this.scale.height * 0.82;
     return {
-      x: laneWidth * index + laneWidth / 2,
-      y: this.scale.height * 0.82,
+      x: sideMode ? this.scale.width * 0.5 : laneWidth * index + laneWidth / 2,
+      y: sideY,
       width: laneWidth,
     };
   }
@@ -176,6 +185,7 @@ class MatchScene extends Phaser.Scene {
       if (!sprite) return;
       const lane = this.lane(index);
       sprite.group.setPosition(lane.x, lane.y);
+      sprite.group.setScale(lane.y < this.scale.height * 0.5 ? 0.82 : 1);
       sprite.group.setAlpha(player.connected === false ? 0.35 : 1);
       sprite.label.setText(player.name);
       sprite.body.setFillStyle(Phaser.Display.Color.HexStringToColor(player.color).color);
@@ -192,11 +202,43 @@ class MatchScene extends Phaser.Scene {
       sprite.arc.arc(0, -10, 58 + swing * 42, -0.75, 0.75, false);
       sprite.arc.strokePath();
     });
+
+    this.drawAiOpponent();
+  }
+
+  drawAiOpponent() {
+    if (game.playMode !== "ai" || game.mode === "lobby") {
+      if (this.aiGroup) this.aiGroup.setVisible(false);
+      return;
+    }
+    if (!this.aiGroup) {
+      const group = this.add.container(0, 0);
+      const shadow = this.add.ellipse(0, 28, 118, 38, 0x06121e, 0.34);
+      const body = this.add.circle(0, 0, 25, 0xffc857, 1);
+      const racket = this.add.graphics();
+      const label = this.add.text(0, 58, "AI Rival", {
+        fontFamily: "system-ui",
+        fontSize: "16px",
+        fontStyle: "800",
+        color: "#ffffff",
+      }).setOrigin(0.5);
+      group.add([shadow, body, racket, label]);
+      this.aiGroup = group;
+      this.aiRacket = racket;
+    }
+    this.aiGroup.setVisible(true);
+    this.aiGroup.setPosition(this.scale.width * 0.5, this.scale.height * 0.19);
+    this.aiRacket.clear();
+    this.aiRacket.lineStyle(7, 0xffc857, 1);
+    this.aiRacket.beginPath();
+    this.aiRacket.arc(0, -6, 48 + Math.sin(this.elapsed * 4) * 5, 2.35, 3.9, false);
+    this.aiRacket.strokePath();
   }
 
   spawnBall() {
     if (!game.players.length) return;
-    const playerIndex = Math.floor(Math.random() * game.players.length);
+    const playerCount = game.playMode === "people" ? Math.min(game.players.length, 2) : 1;
+    const playerIndex = Math.floor(Math.random() * playerCount);
     const lane = this.lane(playerIndex);
     const color = game.players[playerIndex].color;
     const sprite = this.add.group();
@@ -308,9 +350,17 @@ class MatchScene extends Phaser.Scene {
         this.targetLayer.strokeCircle(x, ball.targetY, 70 + Math.sin(this.elapsed * 8) * 5);
       }
 
-      if (!ball.hit && game.mode === "playing" && ball.y > lane.y + 58) {
+      const missedBottom = lane.y > h * 0.5 && ball.y > lane.y + 72;
+      const missedTop = lane.y < h * 0.5 && ball.y > lane.y + 92;
+      if (!ball.hit && game.mode === "playing" && (missedBottom || missedTop)) {
         ball.hit = true;
         game.streak = 0;
+        if (game.playMode === "ai" || ball.playerIndex === 0) {
+          game.aiScore += 1;
+        } else if (game.playMode === "people") {
+          const other = ball.playerIndex === 0 ? 1 : 0;
+          game.sideScores[other] += 1;
+        }
         this.pulse = 0.8;
         this.burst(x, lane.y, "#ff6f91", 8);
         tone(120, 0.12, "sawtooth", 0.04);
@@ -397,13 +447,40 @@ function updateLobby() {
     const item = document.createElement("div");
     item.className = "player-pill";
     item.style.borderLeft = `5px solid ${player.color}`;
-    item.innerHTML = `<span>${player.name}</span><small>P${index + 1}</small>`;
+    const test = player.lastSwingPower ? `${player.lastSwingPower.toFixed(1)}` : `${(player.lastMotion || 0).toFixed(1)}`;
+    item.innerHTML = `<span>${player.name}</span><small>P${index + 1} ${test}</small>`;
     tv.players.appendChild(item);
   });
-  tv.start.disabled = game.players.length === 0 || game.mode === "playing";
+  const needed = game.playMode === "people" ? 2 : 1;
+  tv.start.disabled = game.players.length < needed || game.mode === "playing";
+  tv.modeAi.classList.toggle("active", game.playMode === "ai");
+  tv.modePeople.classList.toggle("active", game.playMode === "people");
   tv.status.textContent = game.players.length
-    ? `${game.players.length} controller${game.players.length === 1 ? "" : "s"} ready.`
+    ? `${game.players.length} controller${game.players.length === 1 ? "" : "s"} ready. ${game.playMode === "people" ? "People mode needs 2." : "AI mode can start with 1."}`
     : `Open this on your phone: ${modeLink()}`;
+  updateTestPanel();
+}
+
+function updateTestPanel(player = game.players[game.players.length - 1]) {
+  if (!tv.testStatus || !tv.testMeter) return;
+  if (!player) {
+    tv.testStatus.textContent = "Connect a phone, then swing.";
+    tv.testMeter.style.width = "0%";
+    return;
+  }
+  const value = Math.max(player.lastSwingPower || 0, player.lastMotion || 0);
+  const percent = Math.min(100, value * 82);
+  tv.testMeter.style.width = `${percent}%`;
+  if (player.lastSwingAt && Date.now() - player.lastSwingAt < 1800) {
+    tv.testStatus.textContent = `${player.name}: swing received (${(player.lastSwingPower || 0).toFixed(1)})`;
+  } else {
+    tv.testStatus.textContent = `${player.name}: motion ${(player.lastMotion || 0).toFixed(1)} - swing to test`;
+  }
+}
+
+function setPlayMode(mode) {
+  game.playMode = mode;
+  updateLobby();
 }
 
 function broadcast(data) {
@@ -493,9 +570,20 @@ function handleControllerMessage(player, data) {
   }
   if (data.type === "motion") {
     player.energy = Math.min(1, Math.max(player.energy || 0, data.energy || 0));
+    player.lastMotion = data.energy || 0;
+    updateTestPanel(player);
   }
   if (data.type === "swing") {
-    registerSwing(player, data.power || 1);
+    player.lastSwingPower = data.power || 1;
+    player.lastSwingAt = Date.now();
+    player.swingFlash = 1;
+    updateTestPanel(player);
+    if (game.mode === "playing") {
+      registerSwing(player, data.power || 1);
+    } else {
+      tone(420, 0.06, "triangle", 0.045);
+      if (player.conn.open) player.conn.send({ type: "test", power: data.power || 1 });
+    }
   }
 }
 
@@ -521,7 +609,12 @@ function registerSwing(player, power) {
     best.remove = true;
     const timing = 1 - bestDistance / 140;
     const points = Math.round(10 + timing * 25 + Math.min(power, 1.5) * 8);
-    game.score += points + game.streak;
+    if (game.playMode === "people") {
+      game.sideScores[playerIndex] += 1;
+      game.score = game.sideScores[0] + game.sideScores[1];
+    } else {
+      game.score += points + game.streak;
+    }
     game.streak += 1;
     sceneRef.pulse = 0.4;
     sceneRef.burst(best.x, best.y, player.color, 18);
@@ -536,7 +629,7 @@ function registerSwing(player, power) {
 }
 
 function updateHud() {
-  tv.score.textContent = String(game.score);
+  tv.score.textContent = game.playMode === "ai" ? `${game.score}-${game.aiScore}` : game.playMode === "people" ? `${game.sideScores[0]}-${game.sideScores[1]}` : String(game.score);
   tv.streak.textContent = String(game.streak);
   tv.timer.textContent = String(Math.ceil(game.timeLeft));
 }
@@ -549,6 +642,8 @@ function startMatch() {
     sceneRef.balls = [];
   }
   game.score = 0;
+  game.aiScore = 0;
+  game.sideScores = [0, 0];
   game.streak = 0;
   game.timeLeft = 60;
   game.spawnTimer = 0.8;
@@ -564,7 +659,7 @@ function finishGame() {
   game.mode = "result";
   tv.hud.hidden = true;
   tv.result.hidden = false;
-  tv.finalScore.textContent = String(game.score);
+  tv.finalScore.textContent = game.playMode === "ai" ? `${game.score}-${game.aiScore}` : game.playMode === "people" ? `${game.sideScores[0]}-${game.sideScores[1]}` : String(game.score);
   tv.resultLine.textContent = game.score > 900 ? "Grand Slam energy." : game.score > 450 ? "That was a clean rally." : "Warm up the serve return and run it back.";
   broadcast({ type: "finish", score: game.score });
 }
@@ -600,6 +695,8 @@ async function startHost() {
     setTimeout(() => (tv.copy.textContent = "Copy phone link"), 1000);
   });
   tv.start.addEventListener("click", startMatch);
+  tv.modeAi.addEventListener("click", () => setPlayMode("ai"));
+  tv.modePeople.addEventListener("click", () => setPlayMode("people"));
   tv.playAgain.addEventListener("click", () => {
     tv.lobby.hidden = false;
     tv.result.hidden = true;
@@ -688,6 +785,10 @@ function handleHostMessage(data) {
   if (data.type === "start") {
     setPhoneStatus("Match started. Swing when the ball drops into your return circle.");
     buzz([40, 40, 40]);
+  }
+  if (data.type === "test") {
+    setPhoneStatus(`Test swing received (${Number(data.power || 0).toFixed(1)}).`);
+    buzz(18);
   }
   if (data.type === "hit") {
     setPhoneStatus(`Hit! +${data.points}`);
