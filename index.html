@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Motion Match</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  </head>
+  <body>
+    <main id="app" class="app-shell">
+      <section id="tvView" class="screen screen-tv">
+        <div id="gameRoot" aria-label="Motion Match game arena"></div>
+
+        <div id="tvOverlay" class="tv-overlay">
+          <div class="brand-row">
+            <span class="brand-mark"></span>
+            <span>Motion Match</span>
+          </div>
+
+          <div id="lobbyPanel" class="lobby-panel">
+            <p class="eyebrow">TV game</p>
+            <h1>Rally, swing, score.</h1>
+            <div class="join-strip">
+              <div>
+                <span class="label">Game code</span>
+                <strong id="gameCode">----</strong>
+              </div>
+              <button id="copyLink" type="button" class="ghost-button">Copy phone link</button>
+            </div>
+            <p id="connectionStatus" class="status-text">Opening lobby...</p>
+            <div id="playersList" class="players-list"></div>
+            <button id="startGame" type="button" class="primary-button" disabled>Start match</button>
+          </div>
+
+          <div id="hud" class="hud" hidden>
+            <div>
+              <span class="label">Score</span>
+              <strong id="score">0</strong>
+            </div>
+            <div>
+              <span class="label">Streak</span>
+              <strong id="streak">0</strong>
+            </div>
+            <div>
+              <span class="label">Time</span>
+              <strong id="timer">60</strong>
+            </div>
+          </div>
+
+          <div id="resultPanel" class="result-panel" hidden>
+            <p class="eyebrow">Final score</p>
+            <h2 id="finalScore">0</h2>
+            <p id="resultLine">Nice rally.</p>
+            <button id="playAgain" type="button" class="primary-button">Play again</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="phoneView" class="screen screen-phone" hidden>
+        <div class="phone-bg"></div>
+        <div id="phoneConnect" class="phone-panel">
+          <p class="eyebrow">Phone controller</p>
+          <h1>Join the match</h1>
+          <label class="input-label" for="codeInput">Game code</label>
+          <input id="codeInput" maxlength="4" autocomplete="off" inputmode="text" placeholder="ABCD" />
+          <label class="input-label" for="nameInput">Player name</label>
+          <input id="nameInput" maxlength="14" autocomplete="nickname" placeholder="Player" />
+          <button id="joinGame" type="button" class="primary-button">Connect controller</button>
+          <p id="phoneStatus" class="status-text">Hold the phone like a racket or bat.</p>
+        </div>
+
+        <div id="controllerPanel" class="controller-panel" hidden>
+          <div class="controller-top">
+            <span class="brand-mark"></span>
+            <div>
+              <span class="label">Connected as</span>
+              <strong id="controllerName">Player</strong>
+            </div>
+          </div>
+          <div class="motion-meter">
+            <div id="meterFill"></div>
+            <span id="motionReadout">0.0</span>
+          </div>
+          <button id="permissionButton" type="button" class="ghost-button">Enable motion</button>
+          <button id="swingButton" type="button" class="swing-button">Swing</button>
+          <p id="controllerHint">Swing when the ball reaches your lane. Wrist straps spiritually encouraged.</p>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
