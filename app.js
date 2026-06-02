@@ -4,7 +4,7 @@ const isController = params.get("controller") === "1";
 
 const colors = ["#66e6ff", "#b9ff62", "#ff6f91", "#ffc857"];
 const adjectives = ["Turbo", "Laser", "Rocket", "Mighty", "Disco", "Cosmic"];
-const nouns = ["Ace", "Rally", "Swing", "Volley", "Spark", "Serve"];
+const nouns = ["Ace", "Rally", "Volley", "Topspin", "Spark", "Serve"];
 
 const tv = {
   view: $("tvView"),
@@ -148,7 +148,7 @@ class MatchScene extends Phaser.Scene {
     const laneWidth = this.scale.width / total;
     return {
       x: laneWidth * index + laneWidth / 2,
-      y: this.scale.height * 0.78,
+      y: this.scale.height * 0.82,
       width: laneWidth,
     };
   }
@@ -212,9 +212,9 @@ class MatchScene extends Phaser.Scene {
       glow,
       body,
       stripe,
-      xDrift: (Math.random() - 0.5) * 80,
+      xDrift: (Math.random() - 0.5) * 42,
       y: -40,
-      speed: 185 + Math.min(170, game.score * 2.2),
+      speed: 165 + Math.min(150, game.score * 1.8),
       spin: Math.random() * Math.PI * 2,
       hit: false,
     });
@@ -237,14 +237,30 @@ class MatchScene extends Phaser.Scene {
     const w = this.scale.width;
     const h = this.scale.height;
     this.bg.clear();
-    const top = Phaser.Display.Color.HexStringToColor("#08233a").color;
-    const mid = Phaser.Display.Color.HexStringToColor("#0b443a").color;
-    this.bg.fillGradientStyle(top, top, mid, 0x2b1734, 1);
+    const top = Phaser.Display.Color.HexStringToColor("#093450").color;
+    const mid = Phaser.Display.Color.HexStringToColor("#137056").color;
+    this.bg.fillGradientStyle(top, top, mid, 0x21345d, 1);
     this.bg.fillRect(0, 0, w, h);
-    this.bg.fillStyle(0xffffff, 0.08);
-    this.bg.fillEllipse(w * 0.5, h * 0.58, w * 0.84, h * 0.44);
-    this.bg.lineStyle(3, 0xffffff, 0.24);
-    this.bg.strokeEllipse(w * 0.5, h * 0.58, w * 0.84, h * 0.44);
+
+    const courtX = w * 0.14;
+    const courtY = h * 0.18;
+    const courtW = w * 0.72;
+    const courtH = h * 0.68;
+    const netY = courtY + courtH * 0.48;
+    this.bg.fillStyle(0x1d8f6b, 0.48);
+    this.bg.fillRect(courtX, courtY, courtW, courtH);
+    this.bg.lineStyle(5, 0xf9fbff, 0.5);
+    this.bg.strokeRect(courtX, courtY, courtW, courtH);
+    this.bg.lineStyle(3, 0xf9fbff, 0.38);
+    this.bg.strokeRect(courtX + courtW * 0.12, courtY + courtH * 0.08, courtW * 0.76, courtH * 0.84);
+    this.bg.lineBetween(w * 0.5, courtY + courtH * 0.08, w * 0.5, courtY + courtH * 0.92);
+    this.bg.lineBetween(courtX + courtW * 0.12, netY, courtX + courtW * 0.88, netY);
+    this.bg.lineStyle(9, 0xffffff, 0.7);
+    this.bg.lineBetween(courtX, netY, courtX + courtW, netY);
+    this.bg.lineStyle(2, 0x06121e, 0.3);
+    for (let x = courtX + 24; x < courtX + courtW; x += 46) {
+      this.bg.lineBetween(x, netY - 13, x + 22, netY + 13);
+    }
 
     this.trails.clear();
     for (let i = 0; i < 16; i += 1) {
@@ -289,7 +305,7 @@ class MatchScene extends Phaser.Scene {
       if (game.mode === "playing") {
         const target = 1 - Math.min(1, Math.abs(ball.y - ball.targetY) / 160);
         this.targetLayer.lineStyle(3, Phaser.Display.Color.HexStringToColor(game.players[ball.playerIndex]?.color || "#ffffff").color, 0.18 + target * 0.38);
-        this.targetLayer.strokeCircle(x, ball.targetY, 50 + Math.sin(this.elapsed * 8) * 4);
+        this.targetLayer.strokeCircle(x, ball.targetY, 70 + Math.sin(this.elapsed * 8) * 5);
       }
 
       if (!ball.hit && game.mode === "playing" && ball.y > lane.y + 58) {
@@ -340,7 +356,7 @@ class MatchScene extends Phaser.Scene {
       game.spawnTimer -= dt;
       if (game.spawnTimer <= 0) {
         this.spawnBall();
-        game.spawnTimer = Math.max(0.42, 1.2 - game.score / 180);
+        game.spawnTimer = Math.max(0.62, 1.35 - game.score / 220);
       }
       if (game.timeLeft <= 0) finishGame();
     }
@@ -349,8 +365,8 @@ class MatchScene extends Phaser.Scene {
     this.updateParticles(dt);
 
     const waiting = game.mode === "lobby" && game.players.length === 0;
-    this.prompt.setText(waiting ? "Waiting for phone controllers" : "");
-    this.promptSub.setText(waiting ? "Open the controller link on your phone and enter the code." : "");
+    this.prompt.setText(waiting ? "Waiting for a tennis controller" : "");
+    this.promptSub.setText(waiting ? "Open the phone link and enter the code." : "");
     this.prompt.setPosition(this.scale.width * 0.5, this.scale.height * 0.48);
     this.promptSub.setPosition(this.scale.width * 0.5, this.scale.height * 0.53);
   }
@@ -500,10 +516,10 @@ function registerSwing(player, power) {
       best = ball;
     }
   }
-  if (best && bestDistance < 96) {
+  if (best && bestDistance < 140) {
     best.hit = true;
     best.remove = true;
-    const timing = 1 - bestDistance / 96;
+    const timing = 1 - bestDistance / 140;
     const points = Math.round(10 + timing * 25 + Math.min(power, 1.5) * 8);
     game.score += points + game.streak;
     game.streak += 1;
@@ -549,7 +565,7 @@ function finishGame() {
   tv.hud.hidden = true;
   tv.result.hidden = false;
   tv.finalScore.textContent = String(game.score);
-  tv.resultLine.textContent = game.score > 900 ? "Elite motion chaos." : game.score > 450 ? "That was a clean rally." : "Warm up the wrists and run it back.";
+  tv.resultLine.textContent = game.score > 900 ? "Grand Slam energy." : game.score > 450 ? "That was a clean rally." : "Warm up the serve return and run it back.";
   broadcast({ type: "finish", score: game.score });
 }
 
@@ -619,7 +635,7 @@ function startLocalController(code, name) {
   phone.connect.hidden = true;
   phone.panel.hidden = false;
   phone.controllerName.textContent = name;
-  setPhoneStatus("Connected locally. Enable motion, then swing at the target.");
+  setPhoneStatus("Connected locally. Enable motion, then swing when the ball reaches your circle.");
   buzz([20, 30, 20]);
 }
 
@@ -650,7 +666,7 @@ function connectPhone() {
       phone.connect.hidden = true;
       phone.panel.hidden = false;
       phone.controllerName.textContent = name;
-      setPhoneStatus("Connected. Enable motion, then swing at the target.");
+      setPhoneStatus("Connected. Enable motion, then swing when the ball reaches your circle.");
       buzz([20, 30, 20]);
     });
     myConn.on("data", handleHostMessage);
@@ -670,7 +686,7 @@ function handleHostMessage(data) {
     document.documentElement.style.setProperty("--cyan", data.color || "#66e6ff");
   }
   if (data.type === "start") {
-    setPhoneStatus("Match started. Swing when the ball reaches your lane.");
+    setPhoneStatus("Match started. Swing when the ball drops into your return circle.");
     buzz([40, 40, 40]);
   }
   if (data.type === "hit") {
@@ -700,7 +716,7 @@ function motionEnergy(event) {
   const r = event.rotationRate || {};
   const accel = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
   const rot = Math.hypot(r.alpha || 0, r.beta || 0, r.gamma || 0) / 90;
-  return Math.max(0, Math.min(2, (accel - 9) / 12 + rot * 0.38));
+  return Math.max(0, Math.min(2, (accel - 8.5) / 8 + rot * 0.52));
 }
 
 function onMotion(event) {
@@ -714,7 +730,7 @@ function onMotion(event) {
     send({ type: "motion", energy: Math.min(1, smoothEnergy) });
     lastMotionSend = now;
   }
-  if (smoothEnergy > 0.95 && now - lastSwing > 550) {
+  if (smoothEnergy > 0.42 && now - lastSwing > 420) {
     lastSwing = now;
     send({ type: "swing", power: Math.min(1.5, smoothEnergy) });
   }
@@ -732,7 +748,7 @@ async function enableMotion() {
     }
     window.addEventListener("devicemotion", onMotion);
     phone.permission.textContent = "Motion enabled";
-    setPhoneStatus("Motion is live. Swing when the ball reaches your lane.");
+    setPhoneStatus("Motion is live. Swing when the ball drops into your return circle.");
     buzz(35);
   } catch {
     setPhoneStatus("Motion could not start. The big Swing button still works.");
