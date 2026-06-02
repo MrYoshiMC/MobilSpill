@@ -54,6 +54,10 @@ let sceneRef;
 let localHostChannel;
 let localControllerChannel;
 let localControllerId;
+let relayClient;
+let relayCode = "";
+let relayControllerId = "";
+let relayConfirmed = false;
 
 const game = {
   mode: "lobby",
@@ -109,6 +113,115 @@ function tone(freq, length = 0.08, type = "sine", volume = 0.08) {
 
 function buzz(pattern = 30) {
   if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
+function relayBase(code) {
+  return `phone-tennis/${code.toLowerCase()}`;
+}
+
+function safeJson(data) {
+  try {
+    return JSON.parse(data.toString());
+  } catch {
+    return null;
+  }
+}
+
+function encodeUtf8(text) {
+  return new TextEncoder().encode(text);
+}
+
+function encodeString(text) {
+  const data = encodeUtf8(text);
+  return [data.length >> 8, data.length & 255, ...data];
+}
+
+function encodeLength(length) {
+  const bytes = [];
+  do {
+    let digit = length % 128;
+    length = Math.floor(length / 128);
+    if (length > 0) digit |= 128;
+    bytes.push(digit);
+  } while (length > 0);
+  return bytes;
+}
+
+class TinyMqtt {
+  constructor(clientId) {
+    this.clientId = clientId;
+    this.packetId = 1;
+    this.handlers = new Map();
+    this.connected = false;
+    this.connect();
+  }
+
+  connect() {
+    this.socket = new WebSocket("wss://broker.hivemq.com:8884/mqtt");
+    this.socket.binaryType = "arraybuffer";
+    this.socket.addEventListener("open", () => this.sendConnect());
+    this.socket.addEventListener("message", (event) => this.readPacket(new Uint8Array(event.data)));
+    this.socket.addEventListener("close", () => {
+      this.connected = false;
+      setTimeout(() => this.connect(), 2000);
+    });
+  }
+
+  send(type, body) {
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+    this.socket.send(new Uint8Array([type, ...encodeLength(body.length), ...body]));
+  }
+
+  sendConnect() {
+    const body = [
+      ...encodeString("MQTT"),
+      4,
+      2,
+      0,
+      30,
+      ...encodeString(this.clientId),
+    ];
+    this.send(0x10, body);
+  }
+
+  subscribe(topic, handler) {
+    this.handlers.set(topic, handler);
+    const id = this.packetId++;
+    const body = [id >> 8, id & 255, ...encodeString(topic), 0];
+    this.send(0x82, body);
+  }
+
+  publish(topic, text) {
+    const payload = encodeUtf8(text);
+    this.send(0x30, [...encodeString(topic), ...payload]);
+  }
+
+  readPacket(bytes) {
+    const type = bytes[0] >> 4;
+    let multiplier = 1;
+    let value = 0;
+    let offset = 1;
+    let digit = 0;
+    do {
+      digit = bytes[offset++];
+      value += (digit & 127) * multiplier;
+      multiplier *= 128;
+    } while ((digit & 128) !== 0);
+
+    if (type === 2) {
+      this.connected = true;
+      this.onconnect?.();
+      return;
+    }
+
+    if (type !== 3) return;
+    const topicLength = (bytes[offset] << 8) + bytes[offset + 1];
+    offset += 2;
+    const topic = new TextDecoder().decode(bytes.slice(offset, offset + topicLength));
+    offset += topicLength;
+    const payload = new TextDecoder().decode(bytes.slice(offset, 1 + encodeLength(value).length + value));
+    this.handlers.get(topic)?.(payload);
+  }
 }
 
 function setViews() {
@@ -487,6 +600,20 @@ function broadcast(data) {
   for (const conn of game.connections) {
     if (conn.open) conn.send(data);
   }
+  publishRelayAll(data);
+}
+
+function publishRelayAll(data) {
+  if (!relayClient?.connected || !relayCode) return;
+  for (const player of game.players) {
+    if (!player.id.startsWith("relay-")) continue;
+    relayClient.publish(`${relayBase(relayCode)}/ctrl/${player.id}`, JSON.stringify(data), { qos: 0 });
+  }
+}
+
+function publishRelayTo(player, data) {
+  if (!relayClient?.connected || !relayCode || !player.id.startsWith("relay-")) return;
+  relayClient.publish(`${relayBase(relayCode)}/ctrl/${player.id}`, JSON.stringify(data), { qos: 0 });
 }
 
 function makeLocalConn(channel, controllerId) {
@@ -525,6 +652,45 @@ function startLocalHost(code) {
       return;
     }
     if (player) handleControllerMessage(player, message.data);
+  };
+}
+
+function startRelayHost(code) {
+  relayCode = code;
+  const clientId = `phone-tennis-tv-${code}-${Math.random().toString(36).slice(2)}`;
+  relayClient = new TinyMqtt(clientId);
+  relayClient.onconnect = () => {
+    relayClient.subscribe(`${relayBase(code)}/host`, (payload) => {
+      const message = safeJson(payload);
+      if (!message?.controllerId || !message.data) return;
+      const id = `relay-${message.controllerId}`;
+      let player = game.players.find((item) => item.id === id);
+      if (!player && message.data.type === "hello") {
+        player = {
+          id,
+          conn: {
+            peer: id,
+            open: true,
+            send(data) {
+              publishRelayTo(player, data);
+            },
+            on() {},
+          },
+          name: String(message.data.name || "Player").slice(0, 14),
+          color: colors[game.players.length % colors.length],
+          connected: true,
+          energy: 0,
+          swingFlash: 0,
+        };
+        game.connections.push(player.conn);
+        game.players.push(player);
+        publishRelayTo(player, { type: "welcome", index: game.players.indexOf(player), color: player.color, mode: game.mode, relay: true });
+        updateLobby();
+        return;
+      }
+      if (player) handleControllerMessage(player, message.data);
+    });
+    updateLobby();
   };
 }
 
@@ -567,6 +733,7 @@ function handleControllerMessage(player, data) {
     player.name = String(data.name || "Player").slice(0, 14);
     updateLobby();
     player.conn.send({ type: "welcome", index: game.players.indexOf(player), color: player.color, mode: game.mode });
+    publishRelayTo(player, { type: "welcome", index: game.players.indexOf(player), color: player.color, mode: game.mode, relay: true });
   }
   if (data.type === "motion") {
     player.energy = Math.min(1, Math.max(player.energy || 0, data.energy || 0));
@@ -670,6 +837,7 @@ async function startHost() {
   tv.code.textContent = hostCode;
   tv.status.textContent = "Opening lobby...";
   startLocalHost(hostCode);
+  startRelayHost(hostCode);
   peer = new Peer(`motion-match-${hostCode}`, {
     host: "0.peerjs.com",
     port: 443,
@@ -717,6 +885,18 @@ function send(data) {
   if (localControllerChannel && localControllerId) {
     localControllerChannel.postMessage({ target: "host", controllerId: localControllerId, data });
   }
+  if (relayClient?.connected && relayControllerId && relayCode) {
+    relayClient.publish(`${relayBase(relayCode)}/host`, JSON.stringify({ controllerId: relayControllerId, data }), { qos: 0 });
+  }
+}
+
+function showControllerConnected(name, text) {
+  relayConfirmed = true;
+  phone.connect.hidden = true;
+  phone.panel.hidden = false;
+  phone.controllerName.textContent = name;
+  setPhoneStatus(text);
+  buzz([20, 30, 20]);
 }
 
 function startLocalController(code, name) {
@@ -729,11 +909,20 @@ function startLocalController(code, name) {
     handleHostMessage(message.data);
   };
   localControllerChannel.postMessage({ target: "host", controllerId: localControllerId, data: { type: "hello", name } });
-  phone.connect.hidden = true;
-  phone.panel.hidden = false;
-  phone.controllerName.textContent = name;
-  setPhoneStatus("Connected locally. Enable motion, then swing when the ball reaches your circle.");
-  buzz([20, 30, 20]);
+}
+
+function startRelayController(code, name) {
+  if (relayClient) return;
+  relayCode = code;
+  relayControllerId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  relayClient = new TinyMqtt(`phone-tennis-phone-${relayControllerId}`);
+  relayClient.onconnect = () => {
+    phone.status.textContent = "Relay connected. Waiting for PC...";
+    relayClient.subscribe(`${relayBase(code)}/ctrl/relay-${relayControllerId}`, (payload) => {
+      handleHostMessage(safeJson(payload));
+    });
+    send({ type: "hello", name });
+  };
 }
 
 function connectPhone() {
@@ -745,10 +934,14 @@ function connectPhone() {
     return;
   }
   phone.join.disabled = true;
-  phone.status.textContent = "Connecting...";
+  relayConfirmed = false;
+  phone.status.textContent = "Connecting to PC...";
   const localTimer = setTimeout(() => {
     if (!myConn?.open) startLocalController(code, name);
-  }, 1400);
+  }, 1000);
+  const relayTimer = setTimeout(() => {
+    if (!relayConfirmed) startRelayController(code, name);
+  }, 1200);
   peer = new Peer(undefined, {
     host: "0.peerjs.com",
     port: 443,
@@ -759,12 +952,8 @@ function connectPhone() {
     myConn = peer.connect(`motion-match-${code}`, { reliable: false });
     myConn.on("open", () => {
       clearTimeout(localTimer);
+      clearTimeout(relayTimer);
       send({ type: "hello", name });
-      phone.connect.hidden = true;
-      phone.panel.hidden = false;
-      phone.controllerName.textContent = name;
-      setPhoneStatus("Connected. Enable motion, then swing when the ball reaches your circle.");
-      buzz([20, 30, 20]);
     });
     myConn.on("data", handleHostMessage);
     myConn.on("close", () => {
@@ -772,7 +961,7 @@ function connectPhone() {
     });
   });
   peer.on("error", (err) => {
-    startLocalController(code, name);
+    startRelayController(code, name);
   });
 }
 
@@ -781,6 +970,8 @@ function handleHostMessage(data) {
   if (data.type === "full") setPhoneStatus("That game is full.");
   if (data.type === "welcome") {
     document.documentElement.style.setProperty("--cyan", data.color || "#66e6ff");
+    const name = phone.name.value.trim() || phone.controllerName.textContent || "Player";
+    showControllerConnected(name, data.relay ? "Connected through relay. Enable motion, then test a swing." : "Connected. Enable motion, then test a swing.");
   }
   if (data.type === "start") {
     setPhoneStatus("Match started. Swing when the ball drops into your return circle.");
