@@ -349,29 +349,31 @@ class MatchScene extends Phaser.Scene {
   }
 
   spawnBall() {
+    this.resetRallyBall();
+  }
+
+  resetRallyBall(targetIndex = 0, fromFar = true) {
     if (!game.players.length) return;
+    if (!this.rallyBall) {
+      const shadow = this.add.ellipse(0, 0, 42, 18, 0x06121e, 0.34);
+      const glow = this.add.circle(0, 0, 30, 0xb9ff62, 0.22);
+      const body = this.add.circle(0, 0, 18, 0xf9fbff, 1);
+      const stripe = this.add.graphics();
+      this.rallyBall = { shadow, glow, body, stripe };
+    }
     const playerCount = game.playMode === "people" ? Math.min(game.players.length, 2) : 1;
-    const playerIndex = Math.floor(Math.random() * playerCount);
-    const lane = this.lane(playerIndex);
-    const color = game.players[playerIndex].color;
-    const sprite = this.add.group();
-    const glow = this.add.circle(lane.x, -40, 30, Phaser.Display.Color.HexStringToColor(color).color, 0.22);
-    const body = this.add.circle(lane.x, -40, 20 + Math.random() * 7, 0xf9fbff, 1);
-    const stripe = this.add.graphics();
-    sprite.add(glow);
-    sprite.add(body);
-    sprite.add(stripe);
-    this.balls.push({
-      playerIndex,
-      sprite,
-      glow,
-      body,
-      stripe,
-      xDrift: (Math.random() - 0.5) * 42,
-      y: -40,
-      speed: 165 + Math.min(150, game.score * 1.8),
+    const target = game.playMode === "people" ? targetIndex % Math.max(1, playerCount) : 0;
+    Object.assign(this.rallyBall, {
+      active: true,
+      targetIndex: target,
+      travel: fromFar ? 0.08 : 0.92,
+      direction: fromFar ? 1 : -1,
+      speed: 0.28 + Math.min(0.12, game.score / 1800),
+      xCurve: (Math.random() - 0.5) * 0.18,
       spin: Math.random() * Math.PI * 2,
-      hit: false,
+      hittable: false,
+      bounced: false,
+      waiting: false,
     });
   }
 
@@ -402,18 +404,31 @@ class MatchScene extends Phaser.Scene {
     const courtW = w * 0.72;
     const courtH = h * 0.68;
     const netY = courtY + courtH * 0.48;
+    const farLeft = w * 0.33;
+    const farRight = w * 0.67;
+    const nearLeft = w * 0.09;
+    const nearRight = w * 0.91;
+    const farY = h * 0.18;
+    const nearY = h * 0.88;
     this.bg.fillStyle(0x1d8f6b, 0.48);
-    this.bg.fillRect(courtX, courtY, courtW, courtH);
+    this.bg.beginPath();
+    this.bg.moveTo(farLeft, farY);
+    this.bg.lineTo(farRight, farY);
+    this.bg.lineTo(nearRight, nearY);
+    this.bg.lineTo(nearLeft, nearY);
+    this.bg.closePath();
+    this.bg.fillPath();
     this.bg.lineStyle(5, 0xf9fbff, 0.5);
-    this.bg.strokeRect(courtX, courtY, courtW, courtH);
+    this.bg.strokePath();
     this.bg.lineStyle(3, 0xf9fbff, 0.38);
-    this.bg.strokeRect(courtX + courtW * 0.12, courtY + courtH * 0.08, courtW * 0.76, courtH * 0.84);
-    this.bg.lineBetween(w * 0.5, courtY + courtH * 0.08, w * 0.5, courtY + courtH * 0.92);
-    this.bg.lineBetween(courtX + courtW * 0.12, netY, courtX + courtW * 0.88, netY);
+    this.bg.lineBetween(w * 0.5, farY, w * 0.5, nearY);
+    this.bg.lineBetween(w * 0.41, farY + 30, w * 0.26, nearY - 42);
+    this.bg.lineBetween(w * 0.59, farY + 30, w * 0.74, nearY - 42);
+    this.bg.lineBetween(w * 0.23, h * 0.55, w * 0.77, h * 0.55);
     this.bg.lineStyle(9, 0xffffff, 0.7);
-    this.bg.lineBetween(courtX, netY, courtX + courtW, netY);
+    this.bg.lineBetween(w * 0.2, netY, w * 0.8, netY);
     this.bg.lineStyle(2, 0x06121e, 0.3);
-    for (let x = courtX + 24; x < courtX + courtW; x += 46) {
+    for (let x = w * 0.22; x < w * 0.8; x += 46) {
       this.bg.lineBetween(x, netY - 13, x + 22, netY + 13);
     }
 
@@ -440,51 +455,84 @@ class MatchScene extends Phaser.Scene {
 
   updateBalls(dt) {
     const h = this.scale.height;
+    const w = this.scale.width;
     this.targetLayer.clear();
-    for (const ball of this.balls) {
-      ball.y += ball.speed * dt;
-      ball.spin += dt * 7;
-      const lane = this.lane(ball.playerIndex);
-      const x = lane.x + Math.sin(ball.y / 90 + ball.spin) * 24 + ball.xDrift * (ball.y / h);
-      ball.glow.setPosition(x, ball.y);
-      ball.body.setPosition(x, ball.y);
-      ball.body.setRotation(ball.spin);
-      ball.stripe.clear();
-      ball.stripe.lineStyle(4, Phaser.Display.Color.HexStringToColor(game.players[ball.playerIndex]?.color || "#66e6ff").color, 1);
-      ball.stripe.beginPath();
-      ball.stripe.arc(x, ball.y, ball.body.radius * 0.62, -1.2 + ball.spin, 1.2 + ball.spin, false);
-      ball.stripe.strokePath();
-      ball.x = x;
-      ball.targetY = lane.y - 56;
-
-      if (game.mode === "playing") {
-        const target = 1 - Math.min(1, Math.abs(ball.y - ball.targetY) / 160);
-        this.targetLayer.lineStyle(3, Phaser.Display.Color.HexStringToColor(game.players[ball.playerIndex]?.color || "#ffffff").color, 0.18 + target * 0.38);
-        this.targetLayer.strokeCircle(x, ball.targetY, 70 + Math.sin(this.elapsed * 8) * 5);
+    if (game.mode !== "playing" || !game.players.length) {
+      if (this.rallyBall) {
+        this.rallyBall.shadow.setVisible(false);
+        this.rallyBall.glow.setVisible(false);
+        this.rallyBall.body.setVisible(false);
+        this.rallyBall.stripe.setVisible(false);
       }
-
-      const missedBottom = lane.y > h * 0.5 && ball.y > lane.y + 72;
-      const missedTop = lane.y < h * 0.5 && ball.y > lane.y + 92;
-      if (!ball.hit && game.mode === "playing" && (missedBottom || missedTop)) {
-        ball.hit = true;
-        game.streak = 0;
-        if (game.playMode === "ai" || ball.playerIndex === 0) {
-          game.aiScore += 1;
-        } else if (game.playMode === "people") {
-          const other = ball.playerIndex === 0 ? 1 : 0;
-          game.sideScores[other] += 1;
-        }
-        this.pulse = 0.8;
-        this.burst(x, lane.y, "#ff6f91", 8);
-        tone(120, 0.12, "sawtooth", 0.04);
-        updateHud();
-      }
+      return;
     }
-    this.balls = this.balls.filter((ball) => {
-      const keep = ball.y < h + 80 && !ball.remove;
-      if (!keep) ball.sprite.destroy(true);
-      return keep;
-    });
+    if (!this.rallyBall?.active) this.resetRallyBall(0, true);
+    const ball = this.rallyBall;
+    ball.shadow.setVisible(true);
+    ball.glow.setVisible(true);
+    ball.body.setVisible(true);
+    ball.stripe.setVisible(true);
+    if (!ball.waiting) ball.travel += ball.direction * ball.speed * dt;
+    ball.spin += dt * 8;
+
+    const nearY = h * 0.78;
+    const farY = h * 0.24;
+    const t = Phaser.Math.Clamp(ball.travel, 0, 1);
+    const sideMode = game.playMode === "people" && game.players.length > 1;
+    const targetNear = !sideMode || ball.targetIndex === 0;
+    const depth = targetNear ? t : 1 - t;
+    const courtX = w * 0.14;
+    const centerX = w * 0.5 + ball.xCurve * w * Math.sin(t * Math.PI);
+    const y = Phaser.Math.Linear(farY, nearY, t);
+    const scale = 0.55 + depth * 0.75;
+    const bounce = Math.abs(Math.sin(t * Math.PI * 2.0)) * (78 - depth * 26);
+    const x = Phaser.Math.Clamp(centerX, courtX + 70, w - courtX - 70);
+    const drawY = y - bounce;
+    ball.x = x;
+    ball.y = y;
+    ball.drawY = drawY;
+    ball.targetY = targetNear ? nearY : farY;
+    ball.hittable = Math.abs(y - ball.targetY) < 95 && bounce < 48;
+
+    ball.shadow.setPosition(x, y + 18);
+    ball.shadow.setScale(scale, 0.7 + depth * 0.4);
+    ball.shadow.setAlpha(0.18 + depth * 0.28);
+    ball.glow.setPosition(x, drawY);
+    ball.glow.setRadius(24 * scale);
+    ball.glow.setAlpha(0.16 + depth * 0.22);
+    ball.body.setPosition(x, drawY);
+    ball.body.setRadius(15 * scale);
+    ball.stripe.clear();
+    ball.stripe.setVisible(true);
+    ball.stripe.lineStyle(Math.max(2, 3 * scale), 0x66e6ff, 0.9);
+    ball.stripe.beginPath();
+    ball.stripe.arc(x, drawY, 9 * scale, -1.2 + ball.spin, 1.2 + ball.spin, false);
+    ball.stripe.strokePath();
+
+    const targetColor = game.players[ball.targetIndex]?.color || "#66e6ff";
+    this.targetLayer.lineStyle(3, Phaser.Display.Color.HexStringToColor(targetColor).color, ball.hittable ? 0.75 : 0.28);
+    this.targetLayer.strokeEllipse(x, ball.targetY + 20, 122 * scale, 42 * scale);
+
+    const missedNear = targetNear && t >= 1.04;
+    const missedFar = !targetNear && t <= -0.04;
+    if (missedNear || missedFar) this.missRally(ball);
+  }
+
+  missRally(ball) {
+    if (!ball?.active) return;
+    ball.active = false;
+    game.streak = 0;
+    if (game.playMode === "people") {
+      const other = ball.targetIndex === 0 ? 1 : 0;
+      game.sideScores[other] += 1;
+    } else {
+      game.aiScore += 1;
+    }
+    this.pulse = 0.8;
+    this.burst(ball.x, ball.targetY, "#ff6f91", 8);
+    tone(120, 0.12, "sawtooth", 0.04);
+    updateHud();
+    setTimeout(() => this.resetRallyBall(ball.targetIndex, true), 800);
   }
 
   updateParticles(dt) {
@@ -516,11 +564,6 @@ class MatchScene extends Phaser.Scene {
 
     if (game.mode === "playing") {
       game.timeLeft = Math.max(0, game.timeLeft - dt);
-      game.spawnTimer -= dt;
-      if (game.spawnTimer <= 0) {
-        this.spawnBall();
-        game.spawnTimer = Math.max(0.62, 1.35 - game.score / 220);
-      }
       if (game.timeLeft <= 0) finishGame();
     }
 
@@ -554,14 +597,98 @@ function startPhaser() {
   });
 }
 
+function normalizeName(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function isPlaceholderName(name) {
+  return normalizeName(name) === "" || normalizeName(name) === "player";
+}
+
+function removePlayer(playerOrId) {
+  const id = typeof playerOrId === "string" ? playerOrId : playerOrId?.id;
+  const index = game.players.findIndex((player) => player.id === id);
+  if (index === -1 || game.mode === "playing") return;
+  const [player] = game.players.splice(index, 1);
+  game.connections = game.connections.filter((conn) => conn !== player.conn);
+  try {
+    player.conn?.send?.({ type: "kicked" });
+  } catch {}
+  if (sceneRef?.playerSprites?.has(player.id)) {
+    sceneRef.playerSprites.get(player.id).group.destroy();
+    sceneRef.playerSprites.delete(player.id);
+  }
+  updateLobby();
+}
+
+function mergeDuplicatePlayer(player, newName) {
+  const normalized = normalizeName(newName || player.name);
+  if (!normalized || isPlaceholderName(newName || player.name)) return player;
+  const duplicate = game.players.find((item) => item !== player && normalizeName(item.name) === normalized);
+  if (!duplicate) return player;
+
+  duplicate.conn = player.conn || duplicate.conn;
+  duplicate.connected = true;
+  duplicate.lastMotion = Math.max(duplicate.lastMotion || 0, player.lastMotion || 0);
+  duplicate.lastSwingPower = Math.max(duplicate.lastSwingPower || 0, player.lastSwingPower || 0);
+  duplicate.lastSwingAt = Math.max(duplicate.lastSwingAt || 0, player.lastSwingAt || 0);
+  removePlayer(player.id);
+  return duplicate;
+}
+
+function createPlayer(id, conn, name = "Player") {
+  const incomingName = String(name || "Player").slice(0, 14);
+  const namedDuplicate = !isPlaceholderName(incomingName)
+    ? game.players.find((player) => normalizeName(player.name) === normalizeName(incomingName))
+    : null;
+  if (namedDuplicate) {
+    namedDuplicate.conn = conn;
+    namedDuplicate.connected = true;
+    return namedDuplicate;
+  }
+
+  const placeholder = !isPlaceholderName(incomingName)
+    ? game.players.find((player) => isPlaceholderName(player.name) && !player.lastMotion && !player.lastSwingAt)
+    : null;
+  if (placeholder) {
+    placeholder.id = id;
+    placeholder.conn = conn;
+    placeholder.name = incomingName;
+    placeholder.connected = true;
+    placeholder.joinedAt = Date.now();
+    return placeholder;
+  }
+
+  const player = {
+    id,
+    conn,
+    name: incomingName,
+    color: colors[game.players.length % colors.length],
+    connected: true,
+    joinedAt: Date.now(),
+    energy: 0,
+    swingFlash: 0,
+  };
+  game.players.push(player);
+  return player;
+}
+
 function updateLobby() {
+  if (game.mode !== "playing") {
+    const now = Date.now();
+    for (const player of [...game.players]) {
+      const stalePlaceholder = isPlaceholderName(player.name) && player.joinedAt && now - player.joinedAt > 4500 && !player.lastMotion && !player.lastSwingAt;
+      if (stalePlaceholder) removePlayer(player.id);
+    }
+  }
   tv.players.innerHTML = "";
   game.players.forEach((player, index) => {
     const item = document.createElement("div");
     item.className = "player-pill";
     item.style.borderLeft = `5px solid ${player.color}`;
     const test = player.lastSwingPower ? `${player.lastSwingPower.toFixed(1)}` : `${(player.lastMotion || 0).toFixed(1)}`;
-    item.innerHTML = `<span>${player.name}</span><small>P${index + 1} ${test}</small>`;
+    item.innerHTML = `<span>${player.name}</span><small>P${index + 1} ${test}</small><button type="button" class="kick-button" aria-label="Remove ${player.name}">x</button>`;
+    item.querySelector("button").addEventListener("click", () => removePlayer(player.id));
     tv.players.appendChild(item);
   });
   const needed = game.playMode === "people" ? 2 : 1;
@@ -636,17 +763,8 @@ function startLocalHost(code) {
     let player = game.players.find((item) => item.id === message.controllerId);
     if (!player && message.data?.type === "hello") {
       const conn = makeLocalConn(localHostChannel, message.controllerId);
-      player = {
-        id: message.controllerId,
-        conn,
-        name: String(message.data.name || "Player").slice(0, 14),
-        color: colors[game.players.length % colors.length],
-        connected: true,
-        energy: 0,
-        swingFlash: 0,
-      };
-      game.connections.push(conn);
-      game.players.push(player);
+      player = createPlayer(message.controllerId, conn, message.data.name || "Player");
+      if (!game.connections.includes(conn)) game.connections.push(conn);
       conn.send({ type: "welcome", index: game.players.indexOf(player), color: player.color, mode: game.mode });
       updateLobby();
       return;
@@ -666,24 +784,16 @@ function startRelayHost(code) {
       const id = `relay-${message.controllerId}`;
       let player = game.players.find((item) => item.id === id);
       if (!player && message.data.type === "hello") {
-        player = {
-          id,
-          conn: {
-            peer: id,
-            open: true,
-            send(data) {
-              publishRelayTo(player, data);
-            },
-            on() {},
+        const conn = {
+          peer: id,
+          open: true,
+          send(data) {
+            publishRelayTo(player, data);
           },
-          name: String(message.data.name || "Player").slice(0, 14),
-          color: colors[game.players.length % colors.length],
-          connected: true,
-          energy: 0,
-          swingFlash: 0,
+          on() {},
         };
-        game.connections.push(player.conn);
-        game.players.push(player);
+        player = createPlayer(id, conn, message.data.name || "Player");
+        if (!game.connections.includes(conn)) game.connections.push(conn);
         publishRelayTo(player, { type: "welcome", index: game.players.indexOf(player), color: player.color, mode: game.mode, relay: true });
         updateLobby();
         return;
@@ -699,17 +809,8 @@ function addConnection(conn) {
     conn.on("open", () => conn.send({ type: "full" }));
     return;
   }
-  game.connections.push(conn);
-  const player = {
-    id: conn.peer,
-    conn,
-    name: "Player",
-    color: colors[game.players.length % colors.length],
-    connected: true,
-    energy: 0,
-    swingFlash: 0,
-  };
-  game.players.push(player);
+  const player = createPlayer(conn.peer, conn, "Player");
+  if (!game.connections.includes(conn)) game.connections.push(conn);
 
   conn.on("data", (data) => handleControllerMessage(player, data));
   conn.on("close", () => {
@@ -731,6 +832,7 @@ function handleControllerMessage(player, data) {
   if (!data || typeof data !== "object") return;
   if (data.type === "hello") {
     player.name = String(data.name || "Player").slice(0, 14);
+    player = mergeDuplicatePlayer(player, player.name);
     updateLobby();
     player.conn.send({ type: "welcome", index: game.players.indexOf(player), color: player.color, mode: game.mode });
     publishRelayTo(player, { type: "welcome", index: game.players.indexOf(player), color: player.color, mode: game.mode, relay: true });
@@ -760,21 +862,9 @@ function registerSwing(player, power) {
   const playerIndex = game.players.indexOf(player);
   player.energy = Math.min(1, Math.max(player.energy, power));
   player.swingFlash = 1;
-  const lane = sceneRef.lane(playerIndex);
-  let best = null;
-  let bestDistance = Infinity;
-  for (const ball of sceneRef.balls) {
-    if (ball.playerIndex !== playerIndex || ball.hit) continue;
-    const distance = Math.abs(ball.y - (lane.y - 56));
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = ball;
-    }
-  }
-  if (best && bestDistance < 140) {
-    best.hit = true;
-    best.remove = true;
-    const timing = 1 - bestDistance / 140;
+  const ball = sceneRef.rallyBall;
+  if (ball?.active && ball.targetIndex === playerIndex && ball.hittable) {
+    const timing = 1 - Math.min(1, Math.abs(ball.y - ball.targetY) / 95);
     const points = Math.round(10 + timing * 25 + Math.min(power, 1.5) * 8);
     if (game.playMode === "people") {
       game.sideScores[playerIndex] += 1;
@@ -784,9 +874,26 @@ function registerSwing(player, power) {
     }
     game.streak += 1;
     sceneRef.pulse = 0.4;
-    sceneRef.burst(best.x, best.y, player.color, 18);
+    sceneRef.burst(ball.x, ball.drawY, player.color, 18);
     tone(360 + timing * 320, 0.08, "triangle", 0.08);
     if (player.conn.open) player.conn.send({ type: "hit", quality: timing, points });
+    const nextTarget = game.playMode === "people" && game.players.length > 1 ? (playerIndex === 0 ? 1 : 0) : 0;
+    ball.direction = playerIndex === 0 ? -1 : 1;
+    ball.targetIndex = nextTarget;
+    ball.speed = 0.32 + Math.min(0.16, (game.score + game.streak) / 1800);
+    ball.xCurve = (Math.random() - 0.5) * 0.22;
+    ball.hittable = false;
+    if (game.playMode === "ai") {
+      setTimeout(() => {
+        if (game.mode !== "playing" || !sceneRef?.rallyBall?.active) return;
+        sceneRef.rallyBall.direction = 1;
+        sceneRef.rallyBall.targetIndex = 0;
+        sceneRef.rallyBall.speed = 0.31 + Math.min(0.16, game.score / 1800);
+        sceneRef.rallyBall.xCurve = (Math.random() - 0.5) * 0.2;
+        sceneRef.burst(sceneRef.rallyBall.x, sceneRef.rallyBall.drawY, "#ffc857", 10);
+        tone(300, 0.05, "triangle", 0.04);
+      }, 1150);
+    }
   } else {
     game.streak = 0;
     tone(170, 0.07, "square", 0.035);
@@ -805,8 +912,8 @@ function startMatch() {
   ensureAudio();
   game.mode = "playing";
   if (sceneRef) {
-    for (const ball of sceneRef.balls) ball.sprite.destroy(true);
     sceneRef.balls = [];
+    if (sceneRef.rallyBall) sceneRef.rallyBall.active = false;
   }
   game.score = 0;
   game.aiScore = 0;
@@ -814,6 +921,7 @@ function startMatch() {
   game.streak = 0;
   game.timeLeft = 60;
   game.spawnTimer = 0.8;
+  sceneRef?.resetRallyBall(0, true);
   tv.lobby.hidden = true;
   tv.result.hidden = true;
   tv.hud.hidden = false;
@@ -968,13 +1076,19 @@ function connectPhone() {
 function handleHostMessage(data) {
   if (!data || typeof data !== "object") return;
   if (data.type === "full") setPhoneStatus("That game is full.");
+  if (data.type === "kicked") {
+    setPhoneStatus("Removed from lobby. Reconnect if you want to play.");
+    phone.panel.hidden = true;
+    phone.connect.hidden = false;
+    phone.join.disabled = false;
+  }
   if (data.type === "welcome") {
     document.documentElement.style.setProperty("--cyan", data.color || "#66e6ff");
     const name = phone.name.value.trim() || phone.controllerName.textContent || "Player";
     showControllerConnected(name, data.relay ? "Connected through relay. Enable motion, then test a swing." : "Connected. Enable motion, then test a swing.");
   }
   if (data.type === "start") {
-    setPhoneStatus("Match started. Swing when the ball drops into your return circle.");
+    setPhoneStatus("Match started. Swing when the ball bounces near you.");
     buzz([40, 40, 40]);
   }
   if (data.type === "test") {
@@ -1040,7 +1154,7 @@ async function enableMotion() {
     }
     window.addEventListener("devicemotion", onMotion);
     phone.permission.textContent = "Motion enabled";
-    setPhoneStatus("Motion is live. Swing when the ball drops into your return circle.");
+    setPhoneStatus("Motion is live. Swing when the ball bounces near you.");
     buzz(35);
   } catch {
     setPhoneStatus("Motion could not start. The big Swing button still works.");
